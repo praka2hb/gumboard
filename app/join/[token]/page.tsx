@@ -37,21 +37,36 @@ async function joinOrganization(token: string) {
     throw new Error("This invitation link has reached its usage limit")
   }
 
-  // Check if user is already in an organization
-  const user = await db.user.findUnique({
-    where: { id: session.user.id },
-    include: { organization: true }
+  // Check if user is already a member of this specific organization
+  const existingMembership = await db.organizationMembership.findUnique({
+    where: {
+      userId_organizationId: {
+        userId: session.user.id,
+        organizationId: invite.organizationId
+      }
+    }
   })
 
-  if (user?.organizationId === invite.organizationId) {
+  if (existingMembership) {
     throw new Error("You are already a member of this organization")
   }
 
-  if (user?.organizationId) {
-    throw new Error("You are already a member of another organization. Please leave your current organization first.")
-  }
+  // User lookup for future use if needed
+  // const user = await db.user.findUnique({
+  //   where: { id: session.user.id },
+  //   include: { organization: true }
+  // })
 
-  // Join the organization
+  // Create membership record for tracking multiple organizations
+  await db.organizationMembership.create({
+    data: {
+      userId: session.user.id!,
+      organizationId: invite.organizationId,
+      isAdmin: false
+    }
+  })
+
+  // Set as current organization (this will be the user's active org)
   await db.user.update({
     where: { id: session.user.id },
     data: { organizationId: invite.organizationId }
@@ -109,16 +124,44 @@ async function autoCreateAccountAndJoin(token: string, formData: FormData) {
           organizationId: invite.organizationId // Auto-join the organization
         }
       })
-    } else if (!user.organizationId) {
-      // If user exists but isn't in an organization, add them to this one
+      
+      // Create membership record for new user
+      await db.organizationMembership.create({
+        data: {
+          userId: user.id,
+          organizationId: invite.organizationId,
+          isAdmin: false
+        }
+      })
+    } else {
+      // Check if user is already a member of this organization
+      const existingMembership = await db.organizationMembership.findUnique({
+        where: {
+          userId_organizationId: {
+            userId: user.id,
+            organizationId: invite.organizationId
+          }
+        }
+      })
+
+      if (existingMembership) {
+        throw new Error("You are already a member of this organization")
+      }
+
+      // Create membership record for the new organization
+      await db.organizationMembership.create({
+        data: {
+          userId: user.id,
+          organizationId: invite.organizationId,
+          isAdmin: false
+        }
+      })
+      
+      // Switch to the new organization as active
       user = await db.user.update({
         where: { id: user.id },
         data: { organizationId: invite.organizationId }
       })
-    } else if (user.organizationId === invite.organizationId) {
-      // User is already in this organization, just continue
-    } else {
-      throw new Error("You are already a member of another organization")
     }
 
     // Verify email if not already verified
@@ -350,13 +393,22 @@ export default async function JoinPage({ params }: JoinPageProps) {
     )
   }
 
-  // Check if user is already in an organization
+  // Check if user is already a member of this organization
+  const existingMembership = await db.organizationMembership.findUnique({
+    where: {
+      userId_organizationId: {
+        userId: session.user.id!,
+        organizationId: invite.organizationId
+      }
+    }
+  })
+
   const user = await db.user.findUnique({
-    where: { id: session.user.id },
+    where: { id: session.user.id! },
     include: { organization: true }
   })
 
-  if (user?.organizationId === invite.organizationId) {
+  if (existingMembership) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
         <div className="container mx-auto px-4 py-8">
@@ -368,14 +420,41 @@ export default async function JoinPage({ params }: JoinPageProps) {
                   You are already a member of {invite.organization.name}.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="pt-4">
-                <Button 
-                  onClick={() => window.location.href = '/dashboard'} 
-                  className="w-full"
-                >
-                  Go to Dashboard
-                </Button>
-              </CardContent>
+                              <CardContent className="pt-4 space-y-3">
+                  <form action={async () => {
+                    "use server"
+                    redirect("/dashboard")
+                  }}>
+                    <Button
+                      type="submit"
+                      className="w-full"
+                    >
+                      Go to Boards
+                    </Button>
+                  </form>
+                  {user?.organizationId !== invite.organizationId && (
+                    <form action={async () => {
+                      "use server"
+                      const currentSession = await auth()
+                      if (!currentSession?.user?.id) return
+
+                      // Switch to this organization
+                      await db.user.update({
+                        where: { id: currentSession.user.id },
+                        data: { organizationId: invite.organizationId }
+                      })
+                      redirect("/dashboard")
+                    }}>
+                      <Button
+                        type="submit"
+                        variant="outline"
+                        className="w-full"
+                      >
+                        Switch to {invite.organization.name}
+                      </Button>
+                    </form>
+                  )}
+                </CardContent>
             </Card>
           </div>
         </div>
@@ -383,24 +462,8 @@ export default async function JoinPage({ params }: JoinPageProps) {
     )
   }
 
-  if (user?.organizationId) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
-        <div className="container mx-auto px-4 py-8">
-          <div className="max-w-md mx-auto">
-            <Card className="border-2 border-yellow-200">
-              <CardHeader className="text-center">
-                <CardTitle className="text-xl text-yellow-600">Already in Organization</CardTitle>
-                <CardDescription>
-                  You are already a member of {user.organization?.name}. You can only be a member of one organization at a time.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  // Allow users to join additional organizations
+  // Remove the restriction that prevented joining multiple organizations
 
   const usageInfo = invite.usageLimit ? `${invite.usageCount}/${invite.usageLimit} used` : `${invite.usageCount} members joined`
 
@@ -410,10 +473,18 @@ export default async function JoinPage({ params }: JoinPageProps) {
         <div className="max-w-md mx-auto space-y-8">
           {/* Header */}
           <div className="text-center">
-            <h1 className="text-3xl font-bold mb-2">Join Organization</h1>
+            <h1 className="text-3xl font-bold mb-2">Join {invite.organization.name}</h1>
             <p className="text-muted-foreground">
-              You&apos;ve been invited to join an organization
+              {user?.organization ? 
+                `Join ${invite.organization.name} as an additional organization` :
+                "You've been invited to join this organization"
+              }
             </p>
+            {user?.organization && (
+              <p className="text-sm text-blue-600 dark:text-blue-400 mt-2">
+                You can be a member of multiple organizations and switch between them
+              </p>
+            )}
           </div>
 
           {/* Invitation Details Card */}

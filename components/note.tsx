@@ -17,6 +17,19 @@ export interface User {
   name: string | null;
   email: string;
   isAdmin?: boolean;
+  organization?: {
+    id: string;
+    name: string;
+    slackWebhookUrl?: string;
+    members?: { id: string; name: string | null; email: string; isAdmin: boolean }[];
+  };
+  organizations?: {
+    id: string;
+    name: string;
+    isAdmin: boolean;
+    joinedAt: string;
+    isCurrent?: boolean;
+  }[];
 }
 
 export interface Board {
@@ -469,7 +482,7 @@ export function Note({
         </div>
       ) : (
         <div className="flex flex-col">
-          <div className="overflow-y-auto space-y-1">
+          <div className="space-y-1">
             {/* Checklist Items */}
             {note.checklistItems?.map((item) => (
               <ChecklistItemComponent
@@ -518,12 +531,14 @@ export function Note({
             )}
           </div>
 
-          {/* Add Item Button */}
+          {/* Add Item Button - back outside content area */}
           {canEdit && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => {
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 if (addingItem && newItemInputRef.current && newItemContent.length === 0) {
                   newItemInputRef.current.focus();
                 } else {

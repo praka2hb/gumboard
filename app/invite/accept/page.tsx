@@ -31,6 +31,29 @@ async function acceptInvite(token: string) {
     throw new Error("This invitation has already been processed")
   }
 
+  // Check if user is already a member of this organization
+  const existingMembership = await db.organizationMembership.findUnique({
+    where: {
+      userId_organizationId: {
+        userId: session.user.id!,
+        organizationId: invite.organizationId
+      }
+    }
+  })
+
+  if (existingMembership) {
+    throw new Error("You are already a member of this organization")
+  }
+
+  // Create membership record
+  await db.organizationMembership.create({
+    data: {
+      userId: session.user.id!,
+      organizationId: invite.organizationId,
+      isAdmin: false
+    }
+  })
+
   // Update user to join the organization
   await db.user.update({
     where: { id: session.user.id },

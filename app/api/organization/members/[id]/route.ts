@@ -112,12 +112,50 @@ export async function DELETE(
       return NextResponse.json({ error: "Cannot remove yourself" }, { status: 400 })
     }
 
-    // Remove member from organization
-    await db.user.update({
-      where: { id: memberId },
-      data: { 
-        organizationId: null,
-        isAdmin: false // Reset admin status when leaving organization
+    // Remove member from organization - handle both current org and membership records
+    await db.$transaction(async (tx) => {
+      // Remove the membership record for this organization
+      await tx.organizationMembership.deleteMany({
+        where: {
+          userId: memberId,
+          organizationId: currentUser.organizationId!
+        }
+      })
+
+      // If this was their current organization, we need to handle switching
+      if (member.organizationId === currentUser.organizationId) {
+        // Check if user has other organization memberships
+        const otherMemberships = await tx.organizationMembership.findFirst({
+          where: {
+            userId: memberId,
+            organizationId: {
+              not: currentUser.organizationId!
+            }
+          },
+          include: {
+            organization: true
+          }
+        })
+
+        if (otherMemberships) {
+          // Switch to another organization they're a member of
+          await tx.user.update({
+            where: { id: memberId },
+            data: { 
+              organizationId: otherMemberships.organizationId,
+              isAdmin: otherMemberships.isAdmin
+            }
+          })
+        } else {
+          // No other organizations, remove them completely
+          await tx.user.update({
+            where: { id: memberId },
+            data: { 
+              organizationId: null,
+              isAdmin: false
+            }
+          })
+        }
       }
     })
 

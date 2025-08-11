@@ -32,6 +32,15 @@ async function createOrganization(orgName: string, teamEmails: string[]) {
     },
   });
 
+  // Create membership record for the organization creator
+  await db.organizationMembership.create({
+    data: {
+      userId: session.user.id,
+      organizationId: organization.id,
+      isAdmin: true,
+    },
+  });
+
   await db.user.update({
     where: { id: session.user.id },
     data: {

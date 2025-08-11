@@ -61,6 +61,8 @@ model User {
   invitedOrganizations OrganizationInvite[]
   createdSelfServeInvites OrganizationSelfServeInvite[]
   notes          Note[]
+  // Track multiple organization memberships
+  organizationMemberships OrganizationMembership[]
 
   @@map("users")
 }
@@ -75,6 +77,8 @@ model Organization {
   invites   OrganizationInvite[]
   boards    Board[]
   selfServeInvites OrganizationSelfServeInvite[]
+  // Track multiple organization memberships
+  memberships OrganizationMembership[]
 
   @@map("organizations")
 }
@@ -142,6 +146,21 @@ model OrganizationSelfServeInvite {
   isActive       Boolean      @default(true)
 
   @@map("organization_self_serve_invites")
+}
+
+// Track multiple organization memberships
+model OrganizationMembership {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  isAdmin        Boolean      @default(false)
+  joinedAt       DateTime     @default(now())
+  
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  @@unique([userId, organizationId])
+  @@map("organization_memberships")
 }
 
 enum InviteStatus {

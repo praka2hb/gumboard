@@ -44,6 +44,13 @@ export type UserWithOrganization = User & {
       isAdmin: boolean;
     }[];
   } | null;
+  organizations?: {
+    id: string;
+    name: string;
+    isAdmin: boolean;
+    joinedAt: string;
+    isCurrent?: boolean;
+  }[];
 };
 
 interface OrganizationInvite {
@@ -501,6 +508,101 @@ export default function OrganizationSettingsPage() {
           </div>
         </div>
       </Card>
+
+      {/* All Organizations */}
+      {user?.organizations && user.organizations.length > 1 && (
+        <Card className="p-6 bg-white dark:bg-black border border-border dark:border-zinc-800">
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-2">
+                Your Organizations
+              </h3>
+              <p className="text-zinc-600 dark:text-zinc-400">
+                All organizations you&apos;re a member of. Click to switch between them.
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              {user.organizations.map((org) => (
+                <div
+                  key={org.id}
+                  className={`flex items-center justify-between p-4 border rounded-lg transition-colors ${
+                    org.isCurrent
+                      ? "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950"
+                      : "border-gray-200 dark:border-zinc-700 hover:border-gray-300 dark:hover:border-zinc-600"
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
+                      <span className="text-white font-semibold text-sm">
+                        {org.name.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <h4 className="font-medium text-zinc-900 dark:text-zinc-100">
+                          {org.name}
+                        </h4>
+                        {org.isCurrent && (
+                          <span className="px-2 py-1 text-xs bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded-full">
+                            Current
+                          </span>
+                        )}
+                        {org.isAdmin && (
+                          <div title="Admin">
+                            <Shield className="w-4 h-4 text-amber-500" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+                        Joined {new Date(org.joinedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {!org.isCurrent && (
+                    <Button
+                      onClick={async () => {
+                        try {
+                          const response = await fetch("/api/user/switch-organization", {
+                            method: "POST",
+                            headers: {
+                              "Content-Type": "application/json",
+                            },
+                            body: JSON.stringify({ organizationId: org.id }),
+                          });
+
+                          if (response.ok) {
+                            window.location.reload();
+                          } else {
+                            setErrorDialog({
+                              open: true,
+                              title: "Failed to switch organization",
+                              description: "Please try again.",
+                              variant: "error"
+                            });
+                          }
+                        } catch {
+                          setErrorDialog({
+                            open: true,
+                            title: "Failed to switch organization",
+                            description: "Please try again.",
+                            variant: "error"
+                          });
+                        }
+                      }}
+                      variant="outline"
+                      size="sm"
+                    >
+                      Switch
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Slack Integration */}
       <Card className="p-6 bg-white dark:bg-black border border-border dark:border-zinc-800">

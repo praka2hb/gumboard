@@ -10,7 +10,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Get user with organization and members
+    // Get user with current organization and all memberships
     const user = await db.user.findUnique({
       where: { id: session.user.id },
       include: { 
@@ -24,6 +24,14 @@ export async function GET() {
                 isAdmin: true
               }
             }
+          }
+        },
+        organizationMemberships: {
+          include: {
+            organization: true
+          },
+          orderBy: {
+            joinedAt: 'desc'
           }
         }
       }
@@ -43,7 +51,15 @@ export async function GET() {
         name: user.organization.name,
         slackWebhookUrl: user.organization.slackWebhookUrl,
         members: user.organization.members
-      } : null
+      } : null,
+      // Include all organizations user is a member of
+      organizations: user.organizationMemberships.map(membership => ({
+        id: membership.organization.id,
+        name: membership.organization.name,
+        isAdmin: membership.isAdmin,
+        joinedAt: membership.joinedAt,
+        isCurrent: membership.organizationId === user.organizationId
+      }))
     })
   } catch (error) {
     console.error("Error fetching user:", error)

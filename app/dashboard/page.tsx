@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signOut } from "next-auth/react";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Trash2,
@@ -47,8 +47,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
-} from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+  } from "@/components/ui/dialog";
+  import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+  import { OrganizationSwitcher } from "@/components/organization-switcher";
 
 // Dashboard-specific extended types
 export type DashboardBoard = Board & {
@@ -92,37 +93,7 @@ export default function Dashboard() {
     }
   })
 
-  useEffect(() => {
-    fetchUserAndBoards();
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showUserDropdown) {
-        const target = event.target as Element;
-        if (!target.closest(".user-dropdown")) {
-          setShowUserDropdown(false);
-        }
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (showUserDropdown) {
-          setShowUserDropdown(false);
-        }
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [showUserDropdown]);
-
-  const fetchUserAndBoards = async () => {
+  const fetchUserAndBoards = useCallback(async () => {
     try {
       const userResponse = await fetch("/api/user");
       if (userResponse.status === 401) {
@@ -154,7 +125,37 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
+
+  useEffect(() => {
+    fetchUserAndBoards();
+  }, [fetchUserAndBoards]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showUserDropdown) {
+        const target = event.target as Element;
+        if (!target.closest(".user-dropdown")) {
+          setShowUserDropdown(false);
+        }
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (showUserDropdown) {
+          setShowUserDropdown(false);
+        }
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showUserDropdown]);
 
   const handleAddBoard = async (values: z.infer<typeof formSchema>) => {
     const {name, description} = values;
@@ -311,9 +312,30 @@ export default function Dashboard() {
     }
   }
 
-  const handleSignOut = async () => {
-    await signOut();
-  };
+      const handleSignOut = async () => {
+      await signOut();
+    };
+
+    const handleOrganizationSwitch = async (organizationId: string) => {
+      try {
+        const response = await fetch("/api/user/switch-organization", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ organizationId }),
+        })
+
+        if (response.ok) {
+          // Refresh the page to load new organization's data
+          window.location.reload()
+        } else {
+          console.error("Failed to switch organization")
+        }
+      } catch (error) {
+        console.error("Error switching organization:", error)
+      }
+    };
 
   if (loading) {
     return <FullPageLoader message="Loading dashboard..." />;
@@ -321,15 +343,30 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-background dark:bg-zinc-950">
-      <nav className="bg-card dark:bg-zinc-900 border-b border-border dark:border-zinc-800 shadow-sm">
-        <div className="flex justify-between items-center h-16 px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
-              <h1 className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
-                Gumboard
-              </h1>
+              <nav className="bg-card dark:bg-zinc-900 border-b border-border dark:border-zinc-800 shadow-sm">
+          <div className="flex justify-between items-center h-16 px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center space-x-4">
+              <div className="flex-shrink-0">
+                <h1 className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">
+                  Gumboard
+                </h1>
+              </div>
+              
+              {/* Organization Switcher */}
+              {user?.organizations && user.organizations.length > 1 && (
+                <OrganizationSwitcher
+                  currentOrganization={user.organization ? {
+                    id: user.organization.id,
+                    name: user.organization.name,
+                    isAdmin: user.isAdmin || false,
+                    joinedAt: user.organizations.find((org: { id: string; joinedAt: string }) => org.id === user.organization?.id)?.joinedAt || '',
+                    isCurrent: true
+                  } : null}
+                  organizations={user.organizations}
+                  onSwitch={handleOrganizationSwitch}
+                />
+              )}
             </div>
-          </div>
           <div className="flex items-center space-x-2 sm:space-x-4">
             <Button
               onClick={() => {
