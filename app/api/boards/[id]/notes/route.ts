@@ -7,6 +7,7 @@ import {
   hasValidContent,
   shouldSendNotification,
 } from "@/lib/slack";
+import { publishBoardEvent } from "@/lib/realtime";
 import { NOTE_COLORS } from "@/lib/constants";
 
 // Get all notes for a board
@@ -127,6 +128,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       },
     });
+
+    // Realtime: broadcast creation to board room
+    const originInstanceId = request.headers.get("x-client-instance-id") || undefined;
+    await publishBoardEvent(boardId, "note.created", { note, originInstanceId });
 
     if (
       user.organization?.slackWebhookUrl &&

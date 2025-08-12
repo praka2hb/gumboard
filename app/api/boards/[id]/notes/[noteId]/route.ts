@@ -10,6 +10,7 @@ import {
   shouldSendNotification,
 } from "@/lib/slack";
 import type { ChecklistItem } from "@/components/checklist-item";
+import { publishBoardEvent } from "@/lib/realtime";
 
 // Helper function to detect checklist item changes
 function detectChecklistChanges(oldItems: ChecklistItem[] = [], newItems: ChecklistItem[] = []) {
@@ -129,6 +130,10 @@ export async function PUT(
         },
       },
     });
+
+    // Realtime: broadcast update
+    const originInstanceId = request.headers.get("x-client-instance-id") || undefined;
+    await publishBoardEvent(boardId, "note.updated", { note: updatedNote, originInstanceId });
 
     // Send individual todo notifications if checklist items have changed
     if (checklistItems !== undefined && user.organization?.slackWebhookUrl) {
@@ -293,6 +298,10 @@ export async function DELETE(
         deletedAt: new Date(),
       },
     });
+
+    // Realtime: broadcast deletion
+    const originInstanceId = request.headers.get("x-client-instance-id") || undefined;
+    await publishBoardEvent(boardId, "note.deleted", { noteId, originInstanceId });
 
     return NextResponse.json({ success: true });
   } catch (error) {

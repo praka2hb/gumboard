@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -26,6 +26,14 @@ import {
 import type { Note, Board, User } from "@/components/note";
 import { useTheme } from "next-themes";
 import { ProfileDropdown } from "@/components/profile-dropdown";
+import { io, Socket } from "socket.io-client";
+import { getClientInstanceId } from "@/lib/client-instance";
+
+interface SocketPayload {
+  note?: Note;
+  noteId?: string;
+  originInstanceId?: string;
+}
 
 export default function BoardPage({ params }: { params: Promise<{ id: string }> }) {
   const [board, setBoard] = useState<Board | null>(null);
@@ -52,6 +60,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   });
   const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
   const [addingChecklistItem, setAddingChecklistItem] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
   // Per-item edit and animations are handled inside Note component now
   const [deleteNoteDialog, setDeleteNoteDialog] = useState<{
     open: boolean;
@@ -71,7 +80,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   const searchParams = useSearchParams();
 
   // Update URL with current filter state
-  const updateURL = (
+  const updateURL = useCallback((
     newSearchTerm?: string,
     newDateRange?: { startDate: Date | null; endDate: Date | null },
     newAuthor?: string | null
@@ -101,7 +110,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
     const queryString = params.toString();
     const newURL = queryString ? `?${queryString}` : window.location.pathname;
     router.replace(newURL, { scroll: false });
-  };
+  }, [searchTerm, dateRange, selectedAuthor, router]);
 
   // Initialize filters from URL parameters
   const initializeFiltersFromURL = () => {
@@ -194,7 +203,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
   };
 
   // Helper function to calculate note height based on content
-  const calculateNoteHeight = (note: Note, noteWidth?: number, notePadding?: number) => {
+  const calculateNoteHeight = useCallback((note: Note, noteWidth?: number, notePadding?: number) => {
     const config = getResponsiveConfig();
     const actualNotePadding = notePadding || config.notePadding;
     const actualNoteWidth = noteWidth || config.noteWidth;
@@ -247,211 +256,7 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
       return headerHeight + paddingHeight + Math.max(minContentHeight, contentHeight);
     }
-  };
-
-  // Helper function to calculate bin-packed layout for desktop
-  const calculateGridLayout = () => {
-    if (typeof window === "undefined") return [];
-
-    const config = getResponsiveConfig();
-    const containerWidth = window.innerWidth - config.containerPadding * 2;
-    const noteWidthWithGap = config.noteWidth + config.gridGap;
-    const columnsCount = Math.floor((containerWidth + config.gridGap) / noteWidthWithGap);
-    const actualColumnsCount = Math.max(1, columnsCount);
-
-    // Calculate the actual available width and adjust note width to fill better
-    const availableWidthForNotes = containerWidth - (actualColumnsCount - 1) * config.gridGap;
-    const calculatedNoteWidth = Math.floor(availableWidthForNotes / actualColumnsCount);
-    // Ensure notes don't get too narrow or too wide based on screen size
-    const minWidth = config.noteWidth - 40;
-    const maxWidth = config.noteWidth + 80;
-    const adjustedNoteWidth = Math.max(minWidth, Math.min(maxWidth, calculatedNoteWidth));
-
-    // Use full width with minimal left offset
-    const offsetX = config.containerPadding;
-
-    // Bin-packing algorithm: track the bottom Y position of each column
-    const columnBottoms: number[] = new Array(actualColumnsCount).fill(config.containerPadding);
-
-    return filteredNotes.map((note) => {
-      const noteHeight = calculateNoteHeight(note, adjustedNoteWidth, config.notePadding);
-
-      // Find the column with the lowest bottom position
-      let bestColumn = 0;
-      let minBottom = columnBottoms[0];
-
-      for (let col = 1; col < actualColumnsCount; col++) {
-        if (columnBottoms[col] < minBottom) {
-          minBottom = columnBottoms[col];
-          bestColumn = col;
-        }
-      }
-
-      // Place the note in the best column
-      const x = offsetX + bestColumn * (adjustedNoteWidth + config.gridGap);
-      const y = columnBottoms[bestColumn];
-
-      // Update the column bottom position
-      columnBottoms[bestColumn] = y + noteHeight + config.gridGap;
-
-      return {
-        ...note,
-        x,
-        y,
-        width: adjustedNoteWidth,
-        height: noteHeight,
-      };
-    });
-  };
-
-  // Helper function to calculate mobile layout (optimized single/double column)
-  const calculateMobileLayout = () => {
-    if (typeof window === "undefined") return [];
-
-    const config = getResponsiveConfig();
-    const containerWidth = window.innerWidth - config.containerPadding * 2;
-    const minNoteWidth = config.noteWidth - 20; // Slightly smaller minimum for mobile
-    const columnsCount = Math.floor(
-      (containerWidth + config.gridGap) / (minNoteWidth + config.gridGap)
-    );
-    const actualColumnsCount = Math.max(1, columnsCount);
-
-    // Calculate note width for mobile
-    const availableWidthForNotes = containerWidth - (actualColumnsCount - 1) * config.gridGap;
-    const noteWidth = Math.floor(availableWidthForNotes / actualColumnsCount);
-
-    // Bin-packing for mobile with fewer columns
-    const columnBottoms: number[] = new Array(actualColumnsCount).fill(config.containerPadding);
-
-    return filteredNotes.map((note) => {
-      const noteHeight = calculateNoteHeight(note, noteWidth, config.notePadding);
-
-      // Find the column with the lowest bottom position
-      let bestColumn = 0;
-      let minBottom = columnBottoms[0];
-
-      for (let col = 1; col < actualColumnsCount; col++) {
-        if (columnBottoms[col] < minBottom) {
-          minBottom = columnBottoms[col];
-          bestColumn = col;
-        }
-      }
-
-      // Place the note in the best column
-      const x = config.containerPadding + bestColumn * (noteWidth + config.gridGap);
-      const y = columnBottoms[bestColumn];
-
-      // Update the column bottom position
-      columnBottoms[bestColumn] = y + noteHeight + config.gridGap;
-
-      return {
-        ...note,
-        x,
-        y,
-        width: noteWidth,
-        height: noteHeight,
-      };
-    });
-  };
-
-  useEffect(() => {
-    const initializeParams = async () => {
-      const resolvedParams = await params;
-      setBoardId(resolvedParams.id);
-    };
-    initializeParams();
-  }, [params]);
-
-  // Initialize filters from URL on mount
-  useEffect(() => {
-    initializeFiltersFromURL();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (boardId) {
-      fetchBoardData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId]);
-
-  // Close dropdowns when clicking outside and handle escape key
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showBoardDropdown || showAddBoard) {
-        const target = event.target as Element;
-        if (
-          !target.closest(".board-dropdown") &&
-          !target.closest(".user-dropdown") &&
-          !target.closest(".add-board-modal")
-        ) {
-          setShowBoardDropdown(false);
-          setShowAddBoard(false);
-        }
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (addingChecklistItem) {
-          setAddingChecklistItem(null);
-        }
-        if (showBoardDropdown) {
-          setShowBoardDropdown(false);
-        }
-        if (showAddBoard) {
-          setShowAddBoard(false);
-          setNewBoardName("");
-          setNewBoardDescription("");
-        }
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [showBoardDropdown, showAddBoard, addingChecklistItem]);
-
-  // Removed debounce cleanup effect; editing is scoped to Note
-
-  // Enhanced responsive handling with debounced resize and better breakpoints
-  useEffect(() => {
-    let resizeTimeout: NodeJS.Timeout;
-
-    const checkResponsive = () => {
-      if (typeof window !== "undefined") {
-        const width = window.innerWidth;
-        setIsMobile(width < 768); // Tablet breakpoint
-
-        // Force re-render of notes layout after screen size change
-        // This ensures notes are properly repositioned
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-          // Trigger a state update to force re-calculation of note positions
-          setNotes((prevNotes) => [...prevNotes]);
-        }, 50); // Debounce resize events - reduced for real-time feel
-      }
-    };
-
-    checkResponsive();
-    window.addEventListener("resize", checkResponsive);
-    return () => {
-      window.removeEventListener("resize", checkResponsive);
-      clearTimeout(resizeTimeout);
-    };
-  }, []);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-      updateURL(searchTerm);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
+  }, [addingChecklistItem]);
 
   // Get unique authors from notes
   const getUniqueAuthors = (notes: Note[]) => {
@@ -539,6 +344,42 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
     return filteredNotes;
   };
 
+  // Enhanced responsive handling with debounced resize and better breakpoints
+  useEffect(() => {
+    let resizeTimeout: NodeJS.Timeout;
+
+    const checkResponsive = () => {
+      if (typeof window !== "undefined") {
+        const width = window.innerWidth;
+        setIsMobile(width < 768); // Tablet breakpoint
+
+        // Force re-render of notes layout after screen size change
+        // This ensures notes are properly repositioned
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          // Trigger a state update to force re-calculation of note positions
+          setNotes((prevNotes) => [...prevNotes]);
+        }, 50); // Debounce resize events - reduced for real-time feel
+      }
+    };
+
+    checkResponsive();
+    window.addEventListener("resize", checkResponsive);
+    return () => {
+      window.removeEventListener("resize", checkResponsive);
+      clearTimeout(resizeTimeout);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      updateURL(searchTerm);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, updateURL]);
+
   // Get unique authors for dropdown
   const uniqueAuthors = useMemo(() => getUniqueAuthors(notes), [notes]);
 
@@ -547,6 +388,216 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
     () => filterAndSortNotes(notes, debouncedSearchTerm, dateRange, selectedAuthor, user),
     [notes, debouncedSearchTerm, dateRange, selectedAuthor, user]
   );
+
+  // Helper function to calculate bin-packed layout for desktop
+  const calculateGridLayout = useCallback(() => {
+    if (typeof window === "undefined") return [];
+
+    const config = getResponsiveConfig();
+    const containerWidth = window.innerWidth - config.containerPadding * 2;
+    const noteWidthWithGap = config.noteWidth + config.gridGap;
+    const columnsCount = Math.floor((containerWidth + config.gridGap) / noteWidthWithGap);
+    const actualColumnsCount = Math.max(1, columnsCount);
+
+    // Calculate the actual available width and adjust note width to fill better
+    const availableWidthForNotes = containerWidth - (actualColumnsCount - 1) * config.gridGap;
+    const calculatedNoteWidth = Math.floor(availableWidthForNotes / actualColumnsCount);
+    // Ensure notes don't get too narrow or too wide based on screen size
+    const minWidth = config.noteWidth - 40;
+    const maxWidth = config.noteWidth + 80;
+    const adjustedNoteWidth = Math.max(minWidth, Math.min(maxWidth, calculatedNoteWidth));
+
+    // Use full width with minimal left offset
+    const offsetX = config.containerPadding;
+
+    // Bin-packing algorithm: track the bottom Y position of each column
+    const columnBottoms: number[] = new Array(actualColumnsCount).fill(config.containerPadding);
+
+    return filteredNotes.map((note) => {
+      const noteHeight = calculateNoteHeight(note, adjustedNoteWidth, config.notePadding);
+
+      // Find the column with the lowest bottom position
+      let bestColumn = 0;
+      let minBottom = columnBottoms[0];
+
+      for (let col = 1; col < actualColumnsCount; col++) {
+        if (columnBottoms[col] < minBottom) {
+          minBottom = columnBottoms[col];
+          bestColumn = col;
+        }
+      }
+
+      // Place the note in the best column
+      const x = offsetX + bestColumn * (adjustedNoteWidth + config.gridGap);
+      const y = columnBottoms[bestColumn];
+
+      // Update the column bottom position
+      columnBottoms[bestColumn] = y + noteHeight + config.gridGap;
+
+      return {
+        ...note,
+        x,
+        y,
+        width: adjustedNoteWidth,
+        height: noteHeight,
+      };
+    });
+  }, [filteredNotes, calculateNoteHeight]);
+
+  // Helper function to calculate mobile layout (optimized single/double column)
+  const calculateMobileLayout = useCallback(() => {
+    if (typeof window === "undefined") return [];
+
+    const config = getResponsiveConfig();
+    const containerWidth = window.innerWidth - config.containerPadding * 2;
+    const minNoteWidth = config.noteWidth - 20; // Slightly smaller minimum for mobile
+    const columnsCount = Math.floor(
+      (containerWidth + config.gridGap) / (minNoteWidth + config.gridGap)
+    );
+    const actualColumnsCount = Math.max(1, columnsCount);
+
+    // Calculate note width for mobile
+    const availableWidthForNotes = containerWidth - (actualColumnsCount - 1) * config.gridGap;
+    const noteWidth = Math.floor(availableWidthForNotes / actualColumnsCount);
+
+    // Bin-packing for mobile with fewer columns
+    const columnBottoms: number[] = new Array(actualColumnsCount).fill(config.containerPadding);
+
+    return filteredNotes.map((note) => {
+      const noteHeight = calculateNoteHeight(note, noteWidth, config.notePadding);
+
+      // Find the column with the lowest bottom position
+      let bestColumn = 0;
+      let minBottom = columnBottoms[0];
+
+      for (let col = 1; col < actualColumnsCount; col++) {
+        if (columnBottoms[col] < minBottom) {
+          minBottom = columnBottoms[col];
+          bestColumn = col;
+        }
+      }
+
+      // Place the note in the best column
+      const x = config.containerPadding + bestColumn * (noteWidth + config.gridGap);
+      const y = columnBottoms[bestColumn];
+
+      // Update the column bottom position
+      columnBottoms[bestColumn] = y + noteHeight + config.gridGap;
+
+      return {
+        ...note,
+        x,
+        y,
+        width: noteWidth,
+        height: noteHeight,
+      };
+    });
+  }, [filteredNotes, calculateNoteHeight]);
+
+  useEffect(() => {
+    const initializeParams = async () => {
+      const resolvedParams = await params;
+      setBoardId(resolvedParams.id);
+    };
+    initializeParams();
+  }, [params]);
+
+  // Initialize filters from URL on mount
+  useEffect(() => {
+    initializeFiltersFromURL();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (boardId) {
+      fetchBoardData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardId]);
+
+  // Socket.IO: join board room and listen for realtime updates
+  useEffect(() => {
+    if (!boardId) return;
+    const baseUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:4001";
+    const socket = io(baseUrl, { transports: ["websocket"], forceNew: true });
+    socketRef.current = socket;
+    socket.emit("join-board", boardId);
+
+    const onCreated = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const note = payload?.note;
+      if (note) setNotes((prev) => [note, ...prev]);
+    };
+    const onUpdated = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const note = payload?.note;
+      if (note) setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    };
+    const onDeleted = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const noteId = payload?.noteId;
+      if (noteId) setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    };
+
+    socket.on("note.created", onCreated);
+    socket.on("note.updated", onUpdated);
+    socket.on("note.deleted", onDeleted);
+
+    return () => {
+      socket.emit("leave-board", boardId);
+      socket.off("note.created", onCreated);
+      socket.off("note.updated", onUpdated);
+      socket.off("note.deleted", onDeleted);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [boardId, user?.id]);
+
+  // Close dropdowns when clicking outside and handle escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showBoardDropdown || showAddBoard) {
+        const target = event.target as Element;
+        if (
+          !target.closest(".board-dropdown") &&
+          !target.closest(".user-dropdown") &&
+          !target.closest(".add-board-modal")
+        ) {
+          setShowBoardDropdown(false);
+          setShowAddBoard(false);
+        }
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (addingChecklistItem) {
+          setAddingChecklistItem(null);
+        }
+        if (showBoardDropdown) {
+          setShowBoardDropdown(false);
+        }
+        if (showAddBoard) {
+          setShowAddBoard(false);
+          setNewBoardName("");
+          setNewBoardDescription("");
+        }
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showBoardDropdown, showAddBoard, addingChecklistItem]);
+
+  // Removed debounce cleanup effect; editing is scoped to Note
+
   const layoutNotes = useMemo(
     () => (isMobile ? calculateMobileLayout() : calculateGridLayout()),
     [isMobile, calculateMobileLayout, calculateGridLayout]
@@ -672,13 +723,15 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       const actualTargetBoardId = boardId === "all-notes" ? targetBoardId : boardId;
       const isAllNotesView = boardId === "all-notes";
 
+      const headers = new Headers({ "Content-Type": "application/json" });
+      const instanceId = getClientInstanceId();
+      if (instanceId) headers.set("x-client-instance-id", instanceId);
+
       const response = await fetch(
         `/api/boards/${isAllNotesView ? "all-notes" : actualTargetBoardId}/notes`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers,
           body: JSON.stringify({
             content: "",
             checklistItems: [],
@@ -710,10 +763,15 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
       const currentNote = notes.find((n) => n.id === deleteNoteDialog.noteId);
       const targetBoardId = currentNote?.board?.id ?? currentNote?.boardId;
 
+      const headers = new Headers();
+      const instanceId = getClientInstanceId();
+      if (instanceId) headers.set("x-client-instance-id", instanceId);
+
       const response = await fetch(
         `/api/boards/${targetBoardId}/notes/${deleteNoteDialog.noteId}`,
         {
           method: "DELETE",
+          headers,
         }
       );
 
@@ -746,9 +804,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
       setNotes(notes.filter((n) => n.id !== noteId));
 
+      const headers = new Headers({ "Content-Type": "application/json" });
+      const instanceId = getClientInstanceId();
+      if (instanceId) headers.set("x-client-instance-id", instanceId);
+
       const response = await fetch(`/api/boards/${targetBoardId}/notes/${noteId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ done: true }),
       });
 
@@ -775,9 +837,13 @@ export default function BoardPage({ params }: { params: Promise<{ id: string }> 
 
       setNotes(notes.filter((n) => n.id !== noteId));
 
+      const headers = new Headers({ "Content-Type": "application/json" });
+      const instanceId = getClientInstanceId();
+      if (instanceId) headers.set("x-client-instance-id", instanceId);
+
       const response = await fetch(`/api/boards/${targetBoardId}/notes/${noteId}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ done: false }),
       });
 

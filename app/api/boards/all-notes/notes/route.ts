@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { NOTE_COLORS } from "@/lib/constants";
+import { publishBoardEvent } from "@/lib/realtime";
 
-// Get all notes from all boards in the organization
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function GET(request: NextRequest) {
+
+export async function GET() {
   try {
     const session = await auth();
     if (!session?.user?.id) {
@@ -119,6 +119,10 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // Realtime: broadcast to the specific board
+    const originInstanceId = request.headers.get("x-client-instance-id") || undefined;
+    await publishBoardEvent(boardId, "note.created", { note, originInstanceId });
 
     return NextResponse.json({ note }, { status: 201 });
   } catch (error) {

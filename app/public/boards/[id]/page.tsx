@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
@@ -9,6 +9,14 @@ import { BetaBadge } from "@/components/ui/beta-badge";
 import { FullPageLoader } from "@/components/ui/loader";
 import { FilterPopover } from "@/components/ui/filter-popover";
 import type { Note, Board } from "@/components/note";
+import { io, Socket } from "socket.io-client";
+import { getClientInstanceId } from "@/lib/client-instance";
+
+interface SocketPayload {
+  note?: Note;
+  noteId?: string;
+  originInstanceId?: string;
+}
 
 export default function PublicBoardPage({ params }: { params: Promise<{ id: string }> }) {
   const [board, setBoard] = useState<Board | null>(null);
@@ -27,6 +35,7 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
   const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const socketRef = useRef<Socket | null>(null);
 
   const getResponsiveConfig = () => {
     if (typeof window === "undefined")
@@ -77,7 +86,7 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
     }
   };
 
-  const calculateNoteHeight = (note: Note, noteWidth?: number, notePadding?: number) => {
+  const calculateNoteHeight = useCallback((note: Note, noteWidth?: number, notePadding?: number) => {
     const config = getResponsiveConfig();
     const actualNotePadding = notePadding || config.notePadding;
     const actualNoteWidth = noteWidth || config.noteWidth;
@@ -118,7 +127,7 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
 
       return headerHeight + paddingHeight + Math.max(minContentHeight, contentHeight);
     }
-  };
+  }, []);
 
   const getUniqueAuthors = (notes: Note[]) => {
     const authorsMap = new Map<string, { id: string; name: string; email: string }>();
@@ -185,7 +194,121 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
     return filteredNotes;
   };
 
-  const calculateGridLayout = () => {
+  useEffect(() => {
+    const initializeParams = async () => {
+      const resolvedParams = await params;
+      setBoardId(resolvedParams.id);
+    };
+    initializeParams();
+  }, [params]);
+
+  const fetchBoardData = useCallback(async () => {
+    try {
+      const boardResponse = await fetch(`/api/boards/${boardId}`);
+      if (boardResponse.status === 404) {
+        setBoard(null);
+        setLoading(false);
+        return;
+      }
+      if (boardResponse.status === 401 || boardResponse.status === 403) {
+        router.push("/auth/signin");
+        return;
+      }
+      if (boardResponse.ok) {
+        const { board } = await boardResponse.json();
+        setBoard(board);
+      }
+
+      const notesResponse = await fetch(`/api/boards/${boardId}/notes`);
+      if (notesResponse.ok) {
+        const { notes } = await notesResponse.json();
+        setNotes(notes);
+      }
+    } catch (error) {
+      console.error("Error fetching board data:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [boardId, router]);
+
+  useEffect(() => {
+    if (boardId) {
+      fetchBoardData();
+    }
+  }, [boardId, fetchBoardData]);
+
+  // Socket.IO: public page subscribes for live updates too (if enabled)
+  useEffect(() => {
+    if (!boardId) return;
+    const baseUrl = process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || "http://localhost:4001";
+    const socket = io(baseUrl, { transports: ["websocket"], forceNew: true });
+    socketRef.current = socket;
+    socket.emit("join-board", boardId);
+
+    const onCreated = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const note = payload?.note;
+      if (note) setNotes((prev) => [note, ...prev]);
+    };
+    const onUpdated = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const note = payload?.note;
+      if (note) setNotes((prev) => prev.map((n) => (n.id === note.id ? note : n)));
+    };
+    const onDeleted = (payload: SocketPayload) => {
+      const originInstanceId = payload?.originInstanceId;
+      if (originInstanceId && originInstanceId === getClientInstanceId()) return;
+      const noteId = payload?.noteId;
+      if (noteId) setNotes((prev) => prev.filter((n) => n.id !== noteId));
+    };
+
+    socket.on("note.created", onCreated);
+    socket.on("note.updated", onUpdated);
+    socket.on("note.deleted", onDeleted);
+
+    return () => {
+      socket.emit("leave-board", boardId);
+      socket.off("note.created", onCreated);
+      socket.off("note.updated", onUpdated);
+      socket.off("note.deleted", onDeleted);
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [boardId]);
+
+  useEffect(() => {
+    let resizeTimeout: NodeJS.Timeout;
+
+    const checkResponsive = () => {
+      if (typeof window !== "undefined") {
+        const width = window.innerWidth;
+        setIsMobile(width < 768);
+
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+          setNotes((prevNotes) => [...prevNotes]);
+        }, 50);
+      }
+    };
+
+    checkResponsive();
+    window.addEventListener("resize", checkResponsive);
+    return () => {
+      window.removeEventListener("resize", checkResponsive);
+      clearTimeout(resizeTimeout);
+    };
+  }, []);
+
+  const uniqueAuthors = useMemo(() => getUniqueAuthors(notes), [notes]);
+
+  const filteredNotes = useMemo(
+    () => filterAndSortNotes(notes, searchTerm, dateRange, selectedAuthor),
+    [notes, searchTerm, dateRange, selectedAuthor]
+  );
+
+  const calculateGridLayout = useCallback(() => {
     if (typeof window === "undefined") return [];
 
     const config = getResponsiveConfig();
@@ -229,9 +352,9 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
         height: noteHeight,
       };
     });
-  };
+  }, [filteredNotes, calculateNoteHeight]);
 
-  const calculateMobileLayout = () => {
+  const calculateMobileLayout = useCallback(() => {
     if (typeof window === "undefined") return [];
 
     const config = getResponsiveConfig();
@@ -273,84 +396,11 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
         height: noteHeight,
       };
     });
-  };
-
-  useEffect(() => {
-    const initializeParams = async () => {
-      const resolvedParams = await params;
-      setBoardId(resolvedParams.id);
-    };
-    initializeParams();
-  }, [params]);
-
-  useEffect(() => {
-    if (boardId) {
-      fetchBoardData();
-    }
-  }, [boardId]);
-
-  useEffect(() => {
-    let resizeTimeout: NodeJS.Timeout;
-
-    const checkResponsive = () => {
-      if (typeof window !== "undefined") {
-        const width = window.innerWidth;
-        setIsMobile(width < 768);
-
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-          setNotes((prevNotes) => [...prevNotes]);
-        }, 50);
-      }
-    };
-
-    checkResponsive();
-    window.addEventListener("resize", checkResponsive);
-    return () => {
-      window.removeEventListener("resize", checkResponsive);
-      clearTimeout(resizeTimeout);
-    };
-  }, []);
-
-  const fetchBoardData = async () => {
-    try {
-      const boardResponse = await fetch(`/api/boards/${boardId}`);
-      if (boardResponse.status === 404) {
-        setBoard(null);
-        setLoading(false);
-        return;
-      }
-      if (boardResponse.status === 401 || boardResponse.status === 403) {
-        router.push("/auth/signin");
-        return;
-      }
-      if (boardResponse.ok) {
-        const { board } = await boardResponse.json();
-        setBoard(board);
-      }
-
-      const notesResponse = await fetch(`/api/boards/${boardId}/notes`);
-      if (notesResponse.ok) {
-        const { notes } = await notesResponse.json();
-        setNotes(notes);
-      }
-    } catch (error) {
-      console.error("Error fetching board data:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const uniqueAuthors = useMemo(() => getUniqueAuthors(notes), [notes]);
-
-  const filteredNotes = useMemo(
-    () => filterAndSortNotes(notes, searchTerm, dateRange, selectedAuthor),
-    [notes, searchTerm, dateRange, selectedAuthor]
-  );
+  }, [filteredNotes, calculateNoteHeight]);
 
   const layoutNotes = useMemo(
     () => (isMobile ? calculateMobileLayout() : calculateGridLayout()),
-    [isMobile, filteredNotes, calculateMobileLayout, calculateGridLayout]
+    [isMobile, calculateMobileLayout, calculateGridLayout]
   );
 
   const boardHeight = useMemo(() => {

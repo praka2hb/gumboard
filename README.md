@@ -45,6 +45,32 @@ npm run dev
 
 Visit [http://localhost:3000](http://localhost:3000) in your browser to access the application.
 
+### Realtime (Socket.IO)
+
+To enable realtime sync locally:
+
+1. Create or update your `.env` with:
+
+```
+SOCKET_SERVER_URL=http://localhost:4001
+NEXT_PUBLIC_SOCKET_SERVER_URL=http://localhost:4001
+SOCKET_SERVER_SECRET=dev-secret
+```
+
+2. In a separate terminal, start the socket server:
+
+```
+npm run dev:socket
+```
+
+Or run both Next and socket server together:
+
+```
+npm run dev:full
+```
+
+When deployed, set `SOCKET_SERVER_URL` and `SOCKET_SERVER_SECRET` to your socket server.
+
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/antiwork/gumboard&env=DATABASE_URL,EMAIL_FROM,AUTH_RESEND_KEY,AUTH_SECRET)
 
 ## Database Commands
