@@ -388,7 +388,7 @@ export function Note({
   return (
     <div
       className={cn(
-        "rounded-lg shadow-lg select-none group transition-all duration-200 flex flex-col border border-gray-200 dark:border-gray-600 box-border",
+        "rounded-lg shadow-lg select-none group transition-all duration-200 flex flex-col border border-gray-200 dark:border-gray-600 box-border min-w-0",
         className
       )}
       style={{
@@ -396,20 +396,20 @@ export function Note({
         ...style,
       }}
     >
-      <div className="flex items-start justify-between mb-2 flex-shrink-0">
-        <div className="flex items-center space-x-2">
-          <Avatar className="h-7 w-7 border-2 border-white dark:border-zinc-800">
+      <div className="flex items-start justify-between mb-2 flex-shrink-0 min-w-0">
+        <div className="flex items-center space-x-2 min-w-0">
+          <Avatar className="h-7 w-7 border-2 border-white dark:border-zinc-800 flex-shrink-0">
             <AvatarFallback className="bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200 text-sm font-semibold">
               {note.user.name
                 ? note.user.name.charAt(0).toUpperCase()
                 : note.user.email.charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <div className="flex flex-col">
+          <div className="flex flex-col min-w-0">
             <span className="text-sm font-bold text-gray-700 dark:text-gray-200 truncate max-w-20">
               {note.user.name ? note.user.name.split(" ")[0] : note.user.email.split("@")[0]}
             </span>
-            <div className="flex flex-col">
+            <div className="flex flex-col min-w-0">
               {showBoardName && note.board && (
                 <Link
                   href={`/boards/${note.board.id}`}
@@ -421,7 +421,7 @@ export function Note({
             </div>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-shrink-0">
           {canEdit && (
             <div className="flex space-x-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               <Button
@@ -478,7 +478,7 @@ export function Note({
           <textarea
             value={editContent}
             onChange={(e) => setEditContent(e.target.value)}
-            className="w-full h-full p-2 bg-transparent border-none resize-none focus:outline-none text-base leading-7 text-gray-800 dark:text-gray-200"
+            className="w-full h-full p-2 bg-transparent border-none resize-none focus:outline-none text-base leading-7 text-gray-800 dark:text-gray-200 break-words"
             placeholder="Enter note content..."
             onBlur={handleStopEdit}
             onKeyDown={(e) => {
@@ -494,8 +494,8 @@ export function Note({
           />
         </div>
       ) : (
-        <div className="flex flex-col">
-          <div className="overflow-y-auto space-y-1">
+        <div className="flex flex-col min-h-0 flex-1">
+          <div className="space-y-1 min-w-0 flex-1 pb-0">
             {/* Checklist Items */}
             {note.checklistItems?.map((item) => (
               <ChecklistItemComponent
@@ -517,17 +517,17 @@ export function Note({
 
             {/* Add New Item Input */}
             {addingItem && canEdit && (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <Checkbox
                   disabled
-                  className="border-slate-500 bg-white/50 dark:bg-zinc-800 dark:border-zinc-600"
+                  className="border-slate-500 bg-white/50 dark:bg-zinc-800 dark:border-zinc-600 flex-shrink-0"
                 />
                 <Input
                   ref={newItemInputRef}
                   type="text"
                   value={newItemContent}
                   onChange={(e) => setNewItemContent(e.target.value)}
-                  className="h-auto flex-1 border-none bg-transparent px-1 py-0.5 text-sm text-zinc-900 dark:text-zinc-100 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  className="h-auto flex-1 border-none bg-transparent px-1 py-0.5 text-sm text-zinc-900 dark:text-zinc-100 focus-visible:ring-0 focus-visible:ring-offset-0 min-w-0"
                   placeholder="Add new item..."
                   onBlur={handleAddItem}
                   onKeyDown={handleKeyDownNewItem}
@@ -539,31 +539,31 @@ export function Note({
             {/* Content as text if no checklist items */}
             {(!note.checklistItems || note.checklistItems.length === 0) && !isEditing && (
               <div
-                className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed cursor-pointer"
+                className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap leading-relaxed cursor-pointer break-words min-w-0"
                 onClick={handleStartEdit}
               >
                 {note.content || ""}
               </div>
             )}
-          </div>
 
-          {/* Add Item Button */}
-          {canEdit && (
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (addingItem && newItemInputRef.current && newItemContent.length === 0) {
-                  newItemInputRef.current.focus();
-                } else {
-                  setAddingItem(true);
-                }
-              }}
-              className="mt-3 justify-start text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-zinc-100"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add task
-            </Button>
-          )}
+            {/* Add Item Button - positioned at bottom without extra spacing */}
+            {canEdit && (
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (addingItem && newItemInputRef.current && newItemContent.length === 0) {
+                    newItemInputRef.current.focus();
+                  } else {
+                    setAddingItem(true);
+                  }
+                }}
+                className="w-full justify-start text-slate-600 dark:text-zinc-300 hover:text-slate-900 dark:hover:text-zinc-100 flex-shrink-0 mt-1 h-8 px-2 text-sm"
+              >
+                <Plus className="mr-2 h-3 w-3" />
+                Add task
+              </Button>
+            )}
+          </div>
         </div>
       )}
     </div>

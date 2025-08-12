@@ -96,15 +96,31 @@ export default function PublicBoardPage({ params }: { params: Promise<{ id: stri
     const minContentHeight = 84;
 
     if (note.checklistItems) {
-      const itemHeight = 32;
-      const itemSpacing = 8;
-      const checklistItemsCount = note.checklistItems.length;
+      // For checklist items, calculate height based on actual content wrapping
+      const contentWidth = actualNoteWidth - actualNotePadding * 2 - 60; // Account for checkbox, padding, and margins
+      const avgCharWidth = 8; // Average character width in pixels for the font size
+      const lineHeight = 24; // Line height for checklist items
+      const itemSpacing = 4; // Space between items (space-y-1 = 4px)
+      
+      let totalChecklistHeight = 0;
+      
+      note.checklistItems.forEach((item) => {
+        // Calculate how many lines this item will take
+        const charsPerLine = Math.floor(contentWidth / avgCharWidth);
+        const lines = Math.ceil(item.content.length / charsPerLine);
+        const itemHeight = Math.max(1, lines) * lineHeight;
+        totalChecklistHeight += itemHeight + itemSpacing;
+      });
+      
+      // Remove extra spacing from last item
+      if (note.checklistItems.length > 0) {
+        totalChecklistHeight -= itemSpacing;
+      }
+      
+      // Calculate height naturally without arbitrary limits (public view has no Add task button)
+      const checklistHeight = Math.max(minContentHeight, totalChecklistHeight);
 
-      const checklistHeight =
-        checklistItemsCount * itemHeight + (checklistItemsCount - 1) * itemSpacing;
-      const totalChecklistHeight = Math.max(minContentHeight, checklistHeight);
-
-      return headerHeight + paddingHeight + totalChecklistHeight + 40;
+      return headerHeight + paddingHeight + checklistHeight;
     } else {
       const lines = note.content.split("\n");
       const avgCharWidth = 9;

@@ -73,7 +73,7 @@ export function ChecklistItem({
   return (
     <div
       className={cn(
-        "flex items-center group/item rounded gap-3 transition-all duration-200",
+        "flex items-start group/item rounded gap-3 transition-all duration-200",
         className
       )}
       // To avoid flaky test locators
@@ -83,7 +83,7 @@ export function ChecklistItem({
       <Checkbox
         checked={item.checked}
         onCheckedChange={() => !readonly && onToggle?.(item.id)}
-        className="border-slate-500 bg-white/50 dark:bg-zinc-800 dark:border-zinc-600"
+        className="border-slate-500 bg-white/50 dark:bg-zinc-800 dark:border-zinc-600 mt-1 flex-shrink-0"
         disabled={readonly}
       />
 
@@ -93,7 +93,7 @@ export function ChecklistItem({
           value={editContent ?? item.content}
           onChange={(e) => onEditContentChange?.(e.target.value)}
           className={cn(
-            "h-auto flex-1 border-none bg-transparent p-0 text-sm text-zinc-900 dark:text-zinc-100 focus-visible:ring-0 focus-visible:ring-offset-0",
+            "h-auto flex-1 border-none bg-transparent p-0 text-sm text-zinc-900 dark:text-zinc-100 focus-visible:ring-0 focus-visible:ring-offset-0 min-w-0",
             item.checked && "text-slate-500 dark:text-zinc-500 line-through"
           )}
           onBlur={handleBlur}
@@ -101,25 +101,31 @@ export function ChecklistItem({
           autoFocus
         />
       ) : (
-        <span
+        <div
           className={cn(
-            "flex-1 text-sm leading-6 cursor-pointer select-none",
-            item.checked
-              ? "line-through text-gray-500 dark:text-gray-400"
-              : "text-gray-900 dark:text-gray-100",
+            "flex-1 min-w-0 cursor-pointer select-none",
             !readonly && "hover:bg-gray-100 dark:hover:bg-gray-800 rounded px-1 py-0.5"
           )}
           onClick={() => !readonly && onStartEdit?.(item.id)}
         >
-          {item.content}
-        </span>
+          <span
+            className={cn(
+              "text-sm leading-6 break-words hyphens-auto",
+              item.checked
+                ? "line-through text-gray-500 dark:text-gray-400"
+                : "text-gray-900 dark:text-gray-100"
+            )}
+          >
+            {item.content}
+          </span>
+        </div>
       )}
 
       {showDeleteButton && !readonly && (
         <Button
           variant="ghost"
           size="icon"
-          className="h-6 w-6 opacity-50 md:opacity-0 md:group-hover/item:opacity-50 md:hover:opacity-100 text-zinc-500 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-500"
+          className="h-6 w-6 opacity-50 md:opacity-0 md:group-hover/item:opacity-50 md:hover:opacity-100 text-zinc-500 hover:text-red-600 dark:text-zinc-400 dark:hover:text-red-500 flex-shrink-0"
           onClick={() => onDelete?.(item.id)}
         >
           <Trash2 className="h-3 w-3" />
